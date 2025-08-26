@@ -1,8 +1,13 @@
-import sys ,time, logging, json, asyncio, aiohttp, websockets, argparse
+from src.const import BASE_URL, PORT, WS_URL
+import time
+import logging
+import json
+import asyncio
+import aiohttp
+import websockets
+import argparse
 from functools import wraps
-from utils import *
-# from returns.pointfree import bind
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 
 logging.basicConfig(
     level=logging.INFO,
@@ -10,35 +15,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 # --- Decorators ---
-
-
 def with_logging(func):
     @wraps(func)
-    async def wrapper(*args, **kwargs):
+    async def wrapper(*args, **kwargs) -> Any:
         start_time = time.time()
         result = await func(*args, **kwargs)
         end_time = time.time()
-        logger.info(
-            f"Function {func.__name__} took {end_time - start_time} seconds")
-        logger.info(f"Result from {func.__name__}: {result}")
+        logger.info(f"Function {func.__name__} took {end_time - start_time:.2f}s")
         return result
     return wrapper
 
-# ---pure functions---
-
-
-def extract_task_id(data: Dict[str, Optional[str | None]]) -> Optional[str | None]:
+# --- Utilities ---
+def extract_task_id[T](data: Dict[str, T]) -> Optional[str]:
     return data.get("task_id")
 
-
-def pretty_print(data):
+def pretty_print(data) -> None:
     logger.info(json.dumps(data, indent=2, ensure_ascii=False))
 
-# --- HTTP Task Start Functions ---
-
-
+# --- HTTP Client ---
+@with_logging
 async def unified_request_handler(
     session: aiohttp.ClientSession,
     method: str,
@@ -48,8 +44,7 @@ async def unified_request_handler(
     json: dict = None,
     headers: dict = None,
     timeout: int = 10,
-    **kwargs
-) -> Optional[dict]:
+) -> Optional[Dict[str,Any]]:
     try:
         async with session.request(
             method=method.upper(),
@@ -59,141 +54,120 @@ async def unified_request_handler(
             json=json,
             headers=headers,
             timeout=timeout,
-            **kwargs
         ) as response:
-            response.raise_for_status()
+            if response.status >= 400:
+                text: str = await response.text()
+                logger.error(f"HTTP {response.status}: {text}")
+                return None
             return await response.json()
     except Exception as e:
         logger.exception(f"Request failed: {e}")
         return None
 
-
-async def start_task(session: aiohttp.ClientSession, task_id: str, data: dict) -> str | None:
-    try:
-        await unified_request_handler(session, "post", f"{BASE_URL}:{PORT}/tasks/start/{task_id}", json={})
+# --- Task Management ---
+@with_logging
+async def start_task(session: aiohttp.ClientSession, task_id: str) -> Dict[str,Any] | str:
+    url: str = f"{BASE_URL}:{PORT}/tasks/start/{task_id}"
+    result: Dict[str, Any] | None = await unified_request_handler(session, "post", url, json={})
+    if result and "task_id" in result:
+        logger.info(f"Task started: {task_id}")
         return task_id
-    except Exception as e:
-        logger.exception(f"session creation failed: {e}")
-        return None
+    return None
 
-# -----------------------
-# WebSocket Message Handling Functions
-# -----------------------
+@with_logging
+async def stop_task(session: aiohttp.ClientSession, task_id: str) -> Dict[str,Any] | None:
+    url: str = f"{BASE_URL}:{PORT}/tasks/stop/{task_id}"
+    result: Dict[str, Any] | None = await unified_request_handler(session, "post", url)
+    if result:
+        logger.info(f"Task stopped: {task_id}")
+    return result
 
-
-def safe_parse_json(message: str) -> dict | None:
-    try:
-        return json.loads(message)
-    except json.JSONDecodeError:
-        return None
-
-
-async def process_ws_message(message: str) -> None:
-    data = safe_parse_json(message)
-    if data:
-        pretty_print(data)
+@with_logging
+async def list_tasks(session: aiohttp.ClientSession) -> Dict[str,Any] | None:
+    url: str = f"{BASE_URL}:{PORT}/tasks/list"
+    result: Dict[str, Any] | None = await unified_request_handler(session, "get", url)
+    if result is not None:
+        logger.info(f"Found {len(result)} tasks")
+    return result
 
 
 async def receive_ws_messages(ws: websockets.ClientConnection) -> None:
-    while True:
-        try:
-            message = await ws.recv()
-            await process_ws_message(message)
-        except (websockets.ConnectionClosedOK, websockets.ConnectionClosedError) as e:
-            logger.info(f"WebSocket connection closed")
-            break
-
-# -----------------------
-# WebSocket Connection Management
-# -----------------------
-
-
-async def connect_to_websocket(task_id: str) -> websockets.ClientConnection:
-    ws_endpoint = f"{WS_URL}/{task_id}"
-    return await websockets.connect(ws_endpoint)
-
-
-async def wait_for_task_completion(*tasks) -> list:
-    done, pending = await asyncio.wait(
-        [*tasks],
-        return_when=asyncio.FIRST_COMPLETED
-    )
-
-    for task in pending:
-        task.cancel()
-
-    return [task.result() for task in done]
-
-
-async def manage_websocket_connection(ws: websockets.ClientConnection) -> list | None:
-    task_recv = asyncio.create_task(receive_ws_messages(ws))
-    return await wait_for_task_completion(task_recv)
-
-
-async def listen_task_status(task_id: str) -> list | None:
     try:
-        ws = await connect_to_websocket(task_id)
-        async with ws:
-            return await manage_websocket_connection(ws)
-    except Exception as e:
-        logger.exception(
-            f"WebSocket connection failed for task {task_id}: {e}")
-        return None
+        async for message in ws:
+            data = json.loads(message)
+            logger.info(f"📡 Status update: {json.dumps(data, indent=2)}")
+            if data.get("status") in ("completed", "cancelled"):
+                logger.info("✅ Task completed or cancelled. Closing monitor.")
+                break
+    except websockets.ConnectionClosed as e:
+        logger.info(f"WebSocket closed: {e}")
 
-# -----------------------
-# Main Workflow Functions
-# -----------------------
+async def listen_task_status(task_id: str) -> None:
+    ws_url: str = f"{WS_URL}/{task_id}"
+    try:
+        async with websockets.connect(ws_url) as ws:
+            logger.info(f"🌐 Connected to WebSocket: {ws_url}")
+            await receive_ws_messages(ws)
+    except Exception as e:
+        logger.exception(f"Failed to connect WebSocket for task {task_id}: {e}")
 
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
-        description='Long-running process management API client')
-    subparsers = parser.add_subparsers(
-        dest='command', help='Available commands')
+        description='Client for task management API'
+    )
+    subparsers = parser.add_subparsers(dest='command', help='Available commands', required=True)
 
     # start command
-    start_parser = subparsers.add_parser('start', help='Start a new task')
+    start: argparse.ArgumentParser = subparsers.add_parser('start', help='Start a new task')
+    start.add_argument('--task-id', type=str, help='Specify task ID (optional)')
 
     # stop command
-    stop_parser = subparsers.add_parser('stop', help='Stop a task')
-    
-    # list command
-    list_parser = subparsers.add_parser('list', help='List all tasks')
+    stop: argparse.ArgumentParser = subparsers.add_parser('stop', help='Stop a running task')
+    stop.add_argument('task_id', nargs='?', help='Task ID to stop')
 
+    # list command
+    subparsers.add_parser('list', help='List all tasks')
+
+    # status command (monitor via WebSocket)
+    status: argparse.ArgumentParser = subparsers.add_parser('status', help='Monitor task status in real-time')
+    status.add_argument('task_id', help='Task ID to monitor')
 
     return parser.parse_args()
 
-
+# --- Main ---
 async def main() -> None:
-    # Create the session within an async context
+    args = parse_arguments()
+
     async with aiohttp.ClientSession() as session:
-        json_task_id = await unified_request_handler(session, "get", f"{BASE_URL}:{PORT}/tasks/getid")
-        task_id = extract_task_id(json_task_id)
+        task_id = None
 
-        args = parse_arguments()
-        if args.command == 'start':
-            task_id = await start_task(session, task_id, {})
-            if task_id:
-                logger.info(f"Started task with ID: {task_id}")
-                result = await listen_task_status(task_id)
-        elif args.command == 'stop':
-            result = await unified_request_handler(session, "get", f"{BASE_URL}:{PORT}/tasks/stop/{task_id}")
-        elif args.command == 'list':
-            result = await unified_request_handler(session, "get", f"{BASE_URL}:{PORT}/tasks/list")
+        if args.command == "start":
+            id_response: Dict[str, Any] | None = await unified_request_handler(session, "get", f"{BASE_URL}:{PORT}/tasks/getid")
+            task_id: str | None = extract_task_id(id_response)
+            if not task_id:
+                logger.error("Failed to get task ID")
+                return
 
-        pretty_print(result)
+            await start_task(session, task_id)
+            logger.info(f"Task {task_id} started. Use 'status {task_id}' to monitor.")
+
+        elif args.command == "stop":
+            task_id = args.task_id
+            if not task_id:
+                logger.error("Missing task_id for stop command")
+                return
+            await stop_task(session, task_id)
+
+        elif args.command == "list":
+            result: Dict[str, Any] | None = await list_tasks(session)
+            if result:
+                pretty_print(result)
+
+        elif args.command == "status":
+            task_id = args.task_id
+            logger.info(f"Monitoring task: {task_id}")
+            await listen_task_status(task_id)
 
 if __name__ == "__main__":
-
-    # Start Cmd for function_id=0
-    sys.argv = ["client.py", "start"]
-
     asyncio.run(main())
-
-    # # Stop Cmd
-    # sys.argv = ["client.py", "stop"]
-    # main()
-
-    # List Cmd
-    # sys.argv = ["client.py", "list"]
-    # main()
