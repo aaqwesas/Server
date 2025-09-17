@@ -1,4 +1,4 @@
-from src.const import BASE_URL, PORT, WS_URL
+from const import BASE_URL, PORT, WS_URL
 import time
 import logging
 import json
@@ -8,6 +8,7 @@ import websockets
 import argparse
 from functools import wraps
 from typing import Dict, Optional, Any
+from helper_class import Command
 
 logging.basicConfig(
     level=logging.INFO,
@@ -19,9 +20,9 @@ logger = logging.getLogger(__name__)
 def with_logging(func):
     @wraps(func)
     async def wrapper(*args, **kwargs) -> Any:
-        start_time = time.time()
+        start_time: float = time.time()
         result = await func(*args, **kwargs)
-        end_time = time.time()
+        end_time: float = time.time()
         logger.info(f"Function {func.__name__} took {end_time - start_time:.2f}s")
         return result
     return wrapper
@@ -92,48 +93,51 @@ async def list_tasks(session: aiohttp.ClientSession) -> Dict[str,Any] | None:
 
 
 async def receive_ws_messages(ws: websockets.ClientConnection) -> None:
-    try:
-        async for message in ws:
-            data = json.loads(message)
-            logger.info(f"📡 Status update: {json.dumps(data, indent=2)}")
-            if data.get("status") in ("completed", "cancelled"):
-                logger.info("✅ Task completed or cancelled. Closing monitor.")
-                break
-    except websockets.ConnectionClosed as e:
-        logger.info(f"WebSocket closed: {e}")
+    async for message in ws:
+        data = json.loads(message)
+        logger.info(f"Status update: {json.dumps(data, indent=2)}")
+        if data.get("status") in ("completed", "cancelled"):
+            logger.info("Task completed or cancelled. Closing monitor.")
+            break
 
 async def listen_task_status(task_id: str) -> None:
     ws_url: str = f"{WS_URL}/{task_id}"
     try:
         async with websockets.connect(ws_url) as ws:
-            logger.info(f"🌐 Connected to WebSocket: {ws_url}")
+            logger.info(f"Connected to WebSocket: {ws_url}")
             await receive_ws_messages(ws)
     except Exception as e:
         logger.exception(f"Failed to connect WebSocket for task {task_id}: {e}")
 
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(
-        description='Client for task management API'
-    )
-    subparsers = parser.add_subparsers(dest='command', help='Available commands', required=True)
+    parser = argparse.ArgumentParser(description='Client for task management API')
 
-    # start command
-    start: argparse.ArgumentParser = subparsers.add_parser('start', help='Start a new task')
+    # Restrict subcommands to Command enum values
+    subparsers = parser.add_subparsers(
+        dest='command',
+        help='Available commands',
+        required=True,
+    )
+
+    # Start command
+    start = subparsers.add_parser(Command.START, help='Start a new task')
     start.add_argument('--task-id', type=str, help='Specify task ID (optional)')
 
-    # stop command
-    stop: argparse.ArgumentParser = subparsers.add_parser('stop', help='Stop a running task')
+    # Stop command
+    stop = subparsers.add_parser(Command.STOP, help='Stop a running task')
     stop.add_argument('task_id', nargs='?', help='Task ID to stop')
 
-    # list command
-    subparsers.add_parser('list', help='List all tasks')
+    # List command
+    subparsers.add_parser(Command.LIST, help='List all tasks')
 
-    # status command (monitor via WebSocket)
-    status: argparse.ArgumentParser = subparsers.add_parser('status', help='Monitor task status in real-time')
+    # Status command
+    status = subparsers.add_parser(Command.STATUS, help='Monitor task status in real-time')
     status.add_argument('task_id', help='Task ID to monitor')
 
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    return args
 
 # --- Main ---
 async def main() -> None:
@@ -141,33 +145,41 @@ async def main() -> None:
 
     async with aiohttp.ClientSession() as session:
         task_id = None
+        match args.command:
+            case Command.START:
+                id_response: Dict[str, Any] | None = await unified_request_handler(session, "get", f"{BASE_URL}:{PORT}/tasks/getid")
+                task_id: str | None = extract_task_id(id_response)
+                if not task_id:
+                    logger.error("Failed to get task ID")
+                    return
 
-        if args.command == "start":
-            id_response: Dict[str, Any] | None = await unified_request_handler(session, "get", f"{BASE_URL}:{PORT}/tasks/getid")
-            task_id: str | None = extract_task_id(id_response)
-            if not task_id:
-                logger.error("Failed to get task ID")
-                return
+                await start_task(session, task_id)
+                logger.info(f"Task {task_id} started. Use 'status {task_id}' to monitor.")
+                
+            
+            case Command.STOP:
+                task_id = args.task_id
+                if not task_id:
+                    logger.error("Missing task_id for stop command")
+                    return
+                await stop_task(session, task_id)
+            
+            
+            case Command.LIST:
+                result: Dict[str, Any] | None = await list_tasks(session)
+                if result:
+                    pretty_print(result)
 
-            await start_task(session, task_id)
-            logger.info(f"Task {task_id} started. Use 'status {task_id}' to monitor.")
+            case Command.STATUS:
+                task_id = args.task_id
+                logger.info(f"Monitoring task: {task_id}")
+                await listen_task_status(task_id)
+                
+            case _:
+                logger.error(f"unknown command {args.command}")
+                return 
 
-        elif args.command == "stop":
-            task_id = args.task_id
-            if not task_id:
-                logger.error("Missing task_id for stop command")
-                return
-            await stop_task(session, task_id)
 
-        elif args.command == "list":
-            result: Dict[str, Any] | None = await list_tasks(session)
-            if result:
-                pretty_print(result)
-
-        elif args.command == "status":
-            task_id = args.task_id
-            logger.info(f"Monitoring task: {task_id}")
-            await listen_task_status(task_id)
 
 if __name__ == "__main__":
     asyncio.run(main())

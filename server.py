@@ -2,8 +2,8 @@ import asyncio
 import time
 import uvicorn
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Dict, Optional
+from helper_class import Task, TaskStatus, TaskManager, get_optimal_process_count
+from typing import Any, AsyncGenerator, Dict
 from fastapi import FastAPI, HTTPException, WebSocket, Request
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
@@ -11,38 +11,8 @@ from multiprocessing import Manager, Process
 
 
 
-from src.const import MAX_PROCESSES, HOST,PORT
-from src.task_state import TaskStatus
+from const import HOST,PORT
 
-
-
-# --- Dataclass ---
-@dataclass
-class Task:
-    status: str
-
-# --- Task Manager ---
-class TaskManager:
-    def __init__(self, shared_tasks: Dict[str, Task]) -> None:
-        self.tasks: Dict[str, Task] = shared_tasks
-        
-    def remove_task(self,task_id):
-        self.tasks.pop(task_id, "Does not exist")
-
-    def add_task(self, task_id: str, status:str = TaskStatus.QUEUED) -> None:
-        self.tasks[task_id] = Task(status=status)
-
-    def get_task(self, task_id: str) -> Optional[Task]:
-        return self.tasks.get(task_id)
-
-    def update_task(self, task_id: str, status: str) -> bool:
-        if task_id in self.tasks:
-            self.tasks[task_id] = Task(status=status)
-            return True
-        return False
-
-    def list_tasks(self) -> Dict[str, Task]:
-        return self.tasks.copy()
 
 
 @asynccontextmanager
@@ -99,6 +69,7 @@ def complicated_task(task_id: str, shared_tasks: dict) -> None:
 
 
 async def task_scheduler(app: FastAPI) -> None:
+    max_process = get_optimal_process_count()
     while True:
         # Clean up finished processes
         for task_id in list(app.state.processes.keys()):
@@ -107,9 +78,8 @@ async def task_scheduler(app: FastAPI) -> None:
                 proc.join()
                 del app.state.processes[task_id]
                 app.state.task_manager.remove_task(task_id)
-
         # Start new tasks if room
-        if len(app.state.processes) < MAX_PROCESSES:
+        if len(app.state.processes) < max_process:
             try:
                 task_id = app.state.queue.get_nowait()
                 app.state.task_manager.update_task(task_id, TaskStatus.RUNNING)
