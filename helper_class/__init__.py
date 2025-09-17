@@ -3,6 +3,7 @@ from .task import Task
 from .task_manager import TaskManager
 from .max_process import get_optimal_process_count
 from .command import Command
+from .request_type import Request_Type
 
 
 __all__ = [
@@ -10,5 +11,6 @@ __all__ = [
     "Task",
     "TaskManager",
     "get_optimal_process_count",
-    "Command"
+    "Command",
+    "Request_Type",
 ]

@@ -8,7 +8,7 @@ import websockets
 import argparse
 from functools import wraps
 from typing import Dict, Optional, Any
-from helper_class import Command
+from helper_class import Command, Request_Type
 
 logging.basicConfig(
     level=logging.INFO,
@@ -16,7 +16,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- Decorators ---
 def with_logging(func):
     @wraps(func)
     async def wrapper(*args, **kwargs) -> Any:
@@ -27,7 +26,9 @@ def with_logging(func):
         return result
     return wrapper
 
-# --- Utilities ---
+
+
+
 def extract_task_id[T](data: Dict[str, T]) -> Optional[str]:
     return data.get("task_id")
 
@@ -44,11 +45,11 @@ async def unified_request_handler(
     data: dict = None,
     json: dict = None,
     headers: dict = None,
-    timeout: int = 10,
+    timeout: int = 30,
 ) -> Optional[Dict[str,Any]]:
     try:
         async with session.request(
-            method=method.upper(),
+            method=method,
             url=url,
             params=params,
             data=data,
@@ -69,7 +70,7 @@ async def unified_request_handler(
 @with_logging
 async def start_task(session: aiohttp.ClientSession, task_id: str) -> Dict[str,Any] | str:
     url: str = f"{BASE_URL}:{PORT}/tasks/start/{task_id}"
-    result: Dict[str, Any] | None = await unified_request_handler(session, "post", url, json={})
+    result: Dict[str, Any] | None = await unified_request_handler(session, Request_Type.POST, url, json={})
     if result and "task_id" in result:
         logger.info(f"Task started: {task_id}")
         return task_id
@@ -78,7 +79,7 @@ async def start_task(session: aiohttp.ClientSession, task_id: str) -> Dict[str,A
 @with_logging
 async def stop_task(session: aiohttp.ClientSession, task_id: str) -> Dict[str,Any] | None:
     url: str = f"{BASE_URL}:{PORT}/tasks/stop/{task_id}"
-    result: Dict[str, Any] | None = await unified_request_handler(session, "post", url)
+    result: Dict[str, Any] | None = await unified_request_handler(session, Request_Type.POST, url)
     if result:
         logger.info(f"Task stopped: {task_id}")
     return result
@@ -86,7 +87,7 @@ async def stop_task(session: aiohttp.ClientSession, task_id: str) -> Dict[str,An
 @with_logging
 async def list_tasks(session: aiohttp.ClientSession) -> Dict[str,Any] | None:
     url: str = f"{BASE_URL}:{PORT}/tasks/list"
-    result: Dict[str, Any] | None = await unified_request_handler(session, "get", url)
+    result: Dict[str, Any] | None = await unified_request_handler(session, Request_Type.GET, url)
     if result is not None:
         logger.info(f"Found {len(result)} tasks")
     return result
@@ -117,23 +118,21 @@ def parse_arguments():
     subparsers = parser.add_subparsers(
         dest='command',
         help='Available commands',
-        required=True,
     )
 
     # Start command
     start = subparsers.add_parser(Command.START, help='Start a new task')
-    start.add_argument('--task-id', type=str, help='Specify task ID (optional)')
 
     # Stop command
     stop = subparsers.add_parser(Command.STOP, help='Stop a running task')
-    stop.add_argument('task_id', nargs='?', help='Task ID to stop')
+    stop.add_argument('--task_id', required=True, help='Task ID to stop')
 
     # List command
     subparsers.add_parser(Command.LIST, help='List all tasks')
 
     # Status command
     status = subparsers.add_parser(Command.STATUS, help='Monitor task status in real-time')
-    status.add_argument('task_id', help='Task ID to monitor')
+    status.add_argument('--task_id', required=True, help='Task ID to monitor')
 
     args = parser.parse_args()
 
@@ -142,12 +141,11 @@ def parse_arguments():
 # --- Main ---
 async def main() -> None:
     args = parse_arguments()
-
     async with aiohttp.ClientSession() as session:
         task_id = None
         match args.command:
             case Command.START:
-                id_response: Dict[str, Any] | None = await unified_request_handler(session, "get", f"{BASE_URL}:{PORT}/tasks/getid")
+                id_response: Dict[str, Any] | None = await unified_request_handler(session, Request_Type.GET, f"{BASE_URL}:{PORT}/tasks/getid")
                 task_id: str | None = extract_task_id(id_response)
                 if not task_id:
                     logger.error("Failed to get task ID")

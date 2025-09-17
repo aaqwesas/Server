@@ -63,13 +63,13 @@ app.add_middleware(
 def complicated_task(task_id: str, shared_tasks: dict) -> None:
     time.sleep(5)
     if task_id in shared_tasks:
-        # Update status in shared dict
         shared_tasks[task_id] = Task(status=TaskStatus.COMPLETED)
 
 
 
 async def task_scheduler(app: FastAPI) -> None:
     max_process = get_optimal_process_count()
+    print(f"{max_process = }")
     while True:
         # Clean up finished processes
         for task_id in list(app.state.processes.keys()):
