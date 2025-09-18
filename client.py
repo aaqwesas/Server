@@ -1,33 +1,16 @@
-from const import BASE_URL, PORT, WS_URL
-import time
 import logging
 import json
 import asyncio
 import aiohttp
 import websockets
 import argparse
-from functools import wraps
 from typing import Dict, Optional, Any
+
+from const import BASE_URL, PORT, WS_URL
 from helper_class import Command, Request_Type
+from utils import timeit, setup_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-def with_logging(func):
-    @wraps(func)
-    async def wrapper(*args, **kwargs) -> Any:
-        start_time: float = time.time()
-        result = await func(*args, **kwargs)
-        end_time: float = time.time()
-        logger.info(f"Function {func.__name__} took {end_time - start_time:.2f}s")
-        return result
-    return wrapper
-
-
-
+logger = setup_logging("client")
 
 def extract_task_id[T](data: Dict[str, T]) -> Optional[str]:
     return data.get("task_id")
@@ -36,7 +19,7 @@ def pretty_print(data) -> None:
     logger.info(json.dumps(data, indent=2, ensure_ascii=False))
 
 # --- HTTP Client ---
-@with_logging
+@timeit(logger=logger)
 async def unified_request_handler(
     session: aiohttp.ClientSession,
     method: str,
@@ -67,7 +50,7 @@ async def unified_request_handler(
         return None
 
 # --- Task Management ---
-@with_logging
+@timeit(logger=logger)
 async def start_task(session: aiohttp.ClientSession, task_id: str) -> Dict[str,Any] | str:
     url: str = f"{BASE_URL}:{PORT}/tasks/start/{task_id}"
     result: Dict[str, Any] | None = await unified_request_handler(session, Request_Type.POST, url, json={})
@@ -76,7 +59,7 @@ async def start_task(session: aiohttp.ClientSession, task_id: str) -> Dict[str,A
         return task_id
     return None
 
-@with_logging
+@timeit(logger=logger)
 async def stop_task(session: aiohttp.ClientSession, task_id: str) -> Dict[str,Any] | None:
     url: str = f"{BASE_URL}:{PORT}/tasks/stop/{task_id}"
     result: Dict[str, Any] | None = await unified_request_handler(session, Request_Type.POST, url)
@@ -84,7 +67,7 @@ async def stop_task(session: aiohttp.ClientSession, task_id: str) -> Dict[str,An
         logger.info(f"Task stopped: {task_id}")
     return result
 
-@with_logging
+@timeit(logger=logger)
 async def list_tasks(session: aiohttp.ClientSession) -> Dict[str,Any] | None:
     url: str = f"{BASE_URL}:{PORT}/tasks/list"
     result: Dict[str, Any] | None = await unified_request_handler(session, Request_Type.GET, url)

@@ -1,8 +1,8 @@
 import asyncio
 import time
 import uvicorn
+import psutil
 from contextlib import asynccontextmanager
-from helper_class import Task, TaskStatus, TaskManager, get_optimal_process_count
 from typing import Any, AsyncGenerator, Dict
 from fastapi import FastAPI, HTTPException, WebSocket, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,9 +11,41 @@ from multiprocessing import Manager, Process
 
 
 
-from const import HOST,PORT
+from helper_class import Task, TaskStatus, TaskManager, get_optimal_process_count
+from utils import setup_logging,timeit
+from const import HOST,PORT, STATUS_FREQUENCY
+
+logger = setup_logging(name="server")
+
+@timeit(logger=logger)
+async def cleanup_processes(app):
+     for task_id in list(app.state.processes.keys()):
+        proc = app.state.processes[task_id]
+        if proc.is_alive():
+            continue
+        proc.join()
+        del app.state.processes[task_id]
+        app.state.task_manager.remove_task(task_id)
+
+def get_child_processes() -> list[Process]:
+    current_process = psutil.Process()
+    children = current_process.children(recursive=True)
+    return children
+
+def get_subprocess_count():
+    return len(get_child_processes())
 
 
+@timeit(logger=logger)
+async def start_new_task(app) -> None:
+    try:
+        task_id = app.state.queue.get_nowait()
+        app.state.task_manager.update_task(task_id, TaskStatus.RUNNING)
+        p = Process(target=complicated_task, args=(task_id, app.state.shared_tasks))
+        p.start()
+        app.state.processes[task_id] = p
+    except asyncio.QueueEmpty:
+        pass
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[Any, None]:
@@ -26,7 +58,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[Any, None]:
     app.state.shared_tasks = shared_tasks
     app.state.processes = processes
     app.state.queue = queue
-
+    app.state.max_process = get_optimal_process_count()
     scheduler_task = asyncio.create_task(task_scheduler(app))
     app.state.scheduler_task = scheduler_task
 
@@ -40,12 +72,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[Any, None]:
             pass
 
         for p in processes.values():
-            if p.is_alive():
-                p.terminate()
-                p.join(timeout=3)
-                if p.is_alive():
-                    p.kill()
-                    p.join()
+            if not p.is_alive():
+                continue
+            p.terminate()
+            p.join(timeout=3)
+            if not p.is_alive():
+                continue
+            p.kill()
+            p.join()
+
+
+@asynccontextmanager
+async def managed_websocket(websocket: WebSocket):
+    try:
+        await websocket.accept()
+        yield websocket
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+        raise
+    finally:
+        await websocket.close()
+
 
 app = FastAPI(title="Task Server", lifespan=lifespan)
 
@@ -57,9 +104,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-
-# --- Task Logic ---
+@timeit(logger=logger)
 def complicated_task(task_id: str, shared_tasks: dict) -> None:
     time.sleep(5)
     if task_id in shared_tasks:
@@ -68,26 +113,15 @@ def complicated_task(task_id: str, shared_tasks: dict) -> None:
 
 
 async def task_scheduler(app: FastAPI) -> None:
-    max_process = get_optimal_process_count()
+    max_process = app.state.max_process
     print(f"{max_process = }")
     while True:
-        # Clean up finished processes
-        for task_id in list(app.state.processes.keys()):
-            proc = app.state.processes[task_id]
-            if not proc.is_alive():
-                proc.join()
-                del app.state.processes[task_id]
-                app.state.task_manager.remove_task(task_id)
-        # Start new tasks if room
-        if len(app.state.processes) < max_process:
-            try:
-                task_id = app.state.queue.get_nowait()
-                app.state.task_manager.update_task(task_id, TaskStatus.RUNNING)
-                p = Process(target=complicated_task, args=(task_id, app.state.shared_tasks))
-                p.start()
-                app.state.processes[task_id] = p
-            except asyncio.QueueEmpty:
-                pass
+        await cleanup_processes(app=app)
+        processes = get_subprocess_count()
+        if processes >= max_process:
+            await asyncio.wait(1)
+            continue
+        await start_new_task(app)
         await asyncio.sleep(1)
 
 
@@ -118,31 +152,24 @@ def list_tasks() -> Dict[str,Dict[str,str]]:
         tid: {"status": task.status} 
         for tid, task in app.state.shared_tasks.items()
     }
-
-
+    
 
 @app.websocket("/ws/{task_id}")
 async def task_status_ws(websocket: WebSocket, task_id: str) -> None:
     if task_id not in app.state.shared_tasks:
         await websocket.close(code=1008, reason="Task not found")
         return
-
-    await websocket.accept()
-    try:
+    task = app.state.task_manager.get_task(task_id)
+    if not task:
+        return
+    
+    if task.status in (TaskStatus.CANCELLED, TaskStatus.COMPLETED):
+        return
+    
+    async with managed_websocket(websocket=websocket):
         while True:
-            task = app.state.task_manager.get_task(task_id)
-            if not task:
-                await websocket.close(code=1008, reason="Task deleted")
-                return
-
             await websocket.send_json({"task_id": task_id, "status": task.status})
-
-            if task.status in (TaskStatus.CANCELLED, TaskStatus.COMPLETED):
-                break
-
-            await asyncio.sleep(2)
-    finally:
-        await websocket.close()
+            await asyncio.sleep(STATUS_FREQUENCY)
 
 
 if __name__ == "__main__":

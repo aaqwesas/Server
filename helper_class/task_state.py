@@ -5,4 +5,4 @@ class TaskStatus(StrEnum):
     RUNNING = auto()
     COMPLETED = auto()
     CANCELLED = auto()
-    # FAILED = auto()
+    FAILED = auto()
