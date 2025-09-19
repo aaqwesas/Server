@@ -7,7 +7,7 @@ import argparse
 from typing import Dict, Optional, Any
 
 from const import BASE_URL, PORT, WS_URL
-from helper_class import Command, Request_Type
+from helper_class import Command, Request_Type, TaskStatus
 from utils import timeit
 from configs import setup_logging
 
@@ -82,7 +82,7 @@ async def receive_ws_messages(ws: websockets.ClientConnection) -> None:
         data = json.loads(message)
         logger.info(f"Status update: {json.dumps(data, indent=2)}")
         task_status = data.get("status")
-        if task_status in ("completed", "cancelled", "failed"):
+        if task_status in (TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.FAILED):
             logger.info(f"Task in status {task_status}, Closing monitor.")
             break
 
