@@ -1,6 +1,5 @@
 import json
 import asyncio
-import pprint
 import aiohttp
 import websockets
 import argparse
@@ -75,7 +74,26 @@ async def list_tasks(session: aiohttp.ClientSession) -> Dict[str,Any] | None:
     if result is not None:
         logger.info(f"Found {len(result)} tasks")
         pretty_print(result)
+        
+@timeit(logger=logger) 
+async def handle_start(session : aiohttp.ClientSession) -> None:
+    url: str = f"{BASE_URL}:{PORT}/tasks/getid"
+    id_response: Dict[str, Any] | None = await unified_request_handler(
+        session, Request_Type.GET, url
+        )
+    task_id: str = extract_task_id(id_response)
+    if not task_id:
+        return
+    await start_task(session, task_id)
 
+async def handle_health_check(session: aiohttp.ClientSession) -> None:
+    url = f"{BASE_URL}:{PORT}/tasks/health"
+    result  = await unified_request_handler(
+        session, Request_Type.GET, url
+    )
+    if result:
+        pretty_print(result)
+    
 
 async def receive_ws_messages(ws: websockets.ClientConnection) -> None:
     async for message in ws:
@@ -118,19 +136,13 @@ def parse_arguments():
     # Status command
     status = subparsers.add_parser(Command.STATUS, help='Monitor task status in real-time')
     status.add_argument('--task_id', required=True, help='Task ID to monitor')
+    
+    # server health check
+    health = subparsers.add_parser(Command.HEALTH, help="simple health check for the server")
 
     args = parser.parse_args()
 
     return args
-
-async def handle_start(session : aiohttp.ClientSession) -> None:
-    id_response: Dict[str, Any] | None = await unified_request_handler(
-        session, Request_Type.GET, f"{BASE_URL}:{PORT}/tasks/getid"
-        )
-    task_id: str = extract_task_id(id_response)
-    if not task_id:
-        return
-    await start_task(session, task_id)
 
 
 # --- Main ---
@@ -143,14 +155,18 @@ async def main() -> None:
                 await handle_start(session=session)
                 
             case Command.STOP:
-                await stop_task(session, args.task_id)
+                await stop_task(session=session, task_id=args.task_id)
 
             case Command.LIST:
-                await list_tasks(session)
+                await list_tasks(session=session)
 
             case Command.STATUS:
                 logger.info(f"Monitoring task: {args.task_id}")
                 await listen_task_status(args.task_id)
+                
+            case Command.HEALTH:
+                await handle_health_check(session=session)
+                
                 
             case _:
                 logger.error(f"unknown command {command}")

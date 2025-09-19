@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from typing import List, Tuple
 from fastapi import FastAPI
 from psutil import Process
@@ -40,6 +39,7 @@ async def cleanup_processes(app: FastAPI):
                 proc.kill()
                 await loop.run_in_executor(None, proc.join)  # Final join
 
+            # Now clean up state
             app.state.task_manager.remove_task(task_id)
             app.state.processes.pop(task_id, None)
             logger.info(f"Cleaned up resources for task {task_id}")

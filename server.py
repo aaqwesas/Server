@@ -4,8 +4,9 @@ import time
 import uvicorn
 from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator, Dict
-from datetime import datetime
+from datetime import datetime as dt
 from multiprocessing import Manager, Process
+import datetime
 
 from fastapi import FastAPI, HTTPException, WebSocket, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -113,7 +114,7 @@ app.add_middleware(
 
 @app.get("/tasks/getid")
 async def get_task_id[T]() -> Dict[str, T]:
-    task_id: str = datetime.now().strftime("%Y%m%d%H%M%S%f")
+    task_id: str = dt.now().strftime("%Y%m%d%H%M%S%f")
     return {"task_id": task_id}
 
 
@@ -140,7 +141,13 @@ def list_tasks() -> Dict[str,Dict[str,str]]:
         tid: {"status": task.status} 
         for tid, task in app.state.shared_tasks.items()
     }
-    
+@app.get("/tasks/health")
+def health_check() -> Dict[str, Any]:
+    return {
+        "status": "healthy",
+        "service": "task-manager",
+        "timestamp": dt.now(datetime.timezone.utc)
+    }
 
 @app.websocket("/ws/{task_id}")
 async def task_status_ws(websocket: WebSocket, task_id: str) -> None:
@@ -163,4 +170,12 @@ async def task_status_ws(websocket: WebSocket, task_id: str) -> None:
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host=HOST, port=PORT)
+    uvicorn.run(app, host=HOST, port=PORT, reload=True)
+
+"""
+ uvicorn main:app --reload --host 0.0.0.0 --port 8000
+or
+python server.py
+or
+fastapi run server.py
+"""

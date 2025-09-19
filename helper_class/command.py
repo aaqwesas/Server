@@ -7,5 +7,6 @@ class Command(StrEnum):
     STOP = auto()
     LIST = auto()
     STATUS = auto()
+    HEALTH = auto()
 
 

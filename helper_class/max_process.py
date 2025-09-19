@@ -1,4 +1,3 @@
-import os
 import psutil
 
 def get_optimal_process_count(workload_type='cpu'):
