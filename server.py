@@ -1,42 +1,23 @@
 import asyncio
+from multiprocessing.managers import SyncManager
 import time
 import uvicorn
-import psutil
 from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator, Dict
-from fastapi import FastAPI, HTTPException, WebSocket, Request
-from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 from multiprocessing import Manager, Process
 
-
+from fastapi import FastAPI, HTTPException, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 
 from helper_class import Task, TaskStatus, TaskManager, get_optimal_process_count
-from utils import setup_logging,timeit
-from const import HOST,PORT, STATUS_FREQUENCY
+from utils import get_subprocess_count, cleanup_processes
+from const import HOST,PORT, QUEUE_CHECK, STATUS_FREQUENCY
+from configs import setup_logging
 
 logger = setup_logging(name="server")
 
-@timeit(logger=logger)
-async def cleanup_processes(app):
-     for task_id in list(app.state.processes.keys()):
-        proc = app.state.processes[task_id]
-        if proc.is_alive():
-            continue
-        proc.join()
-        del app.state.processes[task_id]
-        app.state.task_manager.remove_task(task_id)
 
-def get_child_processes() -> list[Process]:
-    current_process = psutil.Process()
-    children = current_process.children(recursive=True)
-    return children
-
-def get_subprocess_count():
-    return len(get_child_processes())
-
-
-@timeit(logger=logger)
 async def start_new_task(app) -> None:
     try:
         task_id = app.state.queue.get_nowait()
@@ -44,12 +25,13 @@ async def start_new_task(app) -> None:
         p = Process(target=complicated_task, args=(task_id, app.state.shared_tasks))
         p.start()
         app.state.processes[task_id] = p
+        logger.info(f"Prcess started with pid: {p.pid}")
     except asyncio.QueueEmpty:
-        pass
+        return
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[Any, None]:
-    manager = Manager()
+    manager: SyncManager = Manager()
     shared_tasks = manager.dict()
     processes = {}
     queue = asyncio.Queue()
@@ -83,7 +65,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[Any, None]:
 
 
 @asynccontextmanager
-async def managed_websocket(websocket: WebSocket):
+async def managed_websocket(websocket: WebSocket) -> AsyncGenerator[WebSocket, None]:
     try:
         await websocket.accept()
         yield websocket
@@ -104,9 +86,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@timeit(logger=logger)
+#@timeit(logger=logger)
 def complicated_task(task_id: str, shared_tasks: dict) -> None:
-    time.sleep(5)
+    time.sleep(100)
     if task_id in shared_tasks:
         shared_tasks[task_id] = Task(status=TaskStatus.COMPLETED)
 
@@ -119,10 +101,10 @@ async def task_scheduler(app: FastAPI) -> None:
         await cleanup_processes(app=app)
         processes = get_subprocess_count()
         if processes >= max_process:
-            await asyncio.wait(1)
+            await asyncio.sleep(QUEUE_CHECK)
             continue
-        await start_new_task(app)
-        await asyncio.sleep(1)
+        await start_new_task(app=app)
+        await asyncio.sleep(QUEUE_CHECK)
 
 
 @app.get("/tasks/getid")
@@ -139,7 +121,7 @@ async def start_task(task_id: str) -> Dict[str,str]:
 
 
 @app.post("/tasks/stop/{task_id}")
-async def stop_task(task_id: str, request :Request) -> Dict[str, str]:
+async def stop_task(task_id: str) -> Dict[str, str]:
     success = app.state.task_manager.update_task(task_id, TaskStatus.CANCELLED)
     if not success:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -158,10 +140,7 @@ def list_tasks() -> Dict[str,Dict[str,str]]:
 async def task_status_ws(websocket: WebSocket, task_id: str) -> None:
     if task_id not in app.state.shared_tasks:
         await websocket.close(code=1008, reason="Task not found")
-        return
     task = app.state.task_manager.get_task(task_id)
-    if not task:
-        return
     
     if task.status in (TaskStatus.CANCELLED, TaskStatus.COMPLETED):
         return

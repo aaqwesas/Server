@@ -2,7 +2,6 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 
-
 def setup_logging(name):
     os.makedirs("logs",exist_ok=True)
     #time_now = time.asctime()
@@ -30,6 +29,4 @@ def setup_logging(name):
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
     
-    return logger
-
-    
+    return logger    

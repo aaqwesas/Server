@@ -18,10 +18,10 @@ class TaskManager:
         return self.tasks.get(task_id)
 
     def update_task(self, task_id: str, status: str) -> bool:
-        if task_id in self.tasks:
-            self.tasks[task_id] = Task(status=status)
-            return True
-        return False
+        if task_id not in self.tasks:
+            return False
+        self.tasks[task_id] = Task(status=status)
+        return True
 
     def list_tasks(self) -> Dict[str, Task]:
         return self.tasks.copy()

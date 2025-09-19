@@ -1,6 +1,6 @@
-import logging
 import json
 import asyncio
+import pprint
 import aiohttp
 import websockets
 import argparse
@@ -8,12 +8,17 @@ from typing import Dict, Optional, Any
 
 from const import BASE_URL, PORT, WS_URL
 from helper_class import Command, Request_Type
-from utils import timeit, setup_logging
+from utils import timeit
+from configs import setup_logging
 
 logger = setup_logging("client")
 
+
 def extract_task_id[T](data: Dict[str, T]) -> Optional[str]:
-    return data.get("task_id")
+    try:
+        return data.get("task_id")
+    except Exception as e:
+        logger.error(f"unable to get task id: {e}")
 
 def pretty_print(data) -> None:
     logger.info(json.dumps(data, indent=2, ensure_ascii=False))
@@ -46,18 +51,15 @@ async def unified_request_handler(
                 return None
             return await response.json()
     except Exception as e:
-        logger.exception(f"Request failed: {e}")
-        return None
+        logger.error(f"Request failed: {e}")
 
 # --- Task Management ---
 @timeit(logger=logger)
-async def start_task(session: aiohttp.ClientSession, task_id: str) -> Dict[str,Any] | str:
+async def start_task(session: aiohttp.ClientSession, task_id: str) -> None:
     url: str = f"{BASE_URL}:{PORT}/tasks/start/{task_id}"
     result: Dict[str, Any] | None = await unified_request_handler(session, Request_Type.POST, url, json={})
-    if result and "task_id" in result:
+    if result.get("task_id"):
         logger.info(f"Task started: {task_id}")
-        return task_id
-    return None
 
 @timeit(logger=logger)
 async def stop_task(session: aiohttp.ClientSession, task_id: str) -> Dict[str,Any] | None:
@@ -65,7 +67,6 @@ async def stop_task(session: aiohttp.ClientSession, task_id: str) -> Dict[str,An
     result: Dict[str, Any] | None = await unified_request_handler(session, Request_Type.POST, url)
     if result:
         logger.info(f"Task stopped: {task_id}")
-    return result
 
 @timeit(logger=logger)
 async def list_tasks(session: aiohttp.ClientSession) -> Dict[str,Any] | None:
@@ -73,15 +74,16 @@ async def list_tasks(session: aiohttp.ClientSession) -> Dict[str,Any] | None:
     result: Dict[str, Any] | None = await unified_request_handler(session, Request_Type.GET, url)
     if result is not None:
         logger.info(f"Found {len(result)} tasks")
-    return result
+        pretty_print(result)
 
 
 async def receive_ws_messages(ws: websockets.ClientConnection) -> None:
     async for message in ws:
         data = json.loads(message)
         logger.info(f"Status update: {json.dumps(data, indent=2)}")
-        if data.get("status") in ("completed", "cancelled"):
-            logger.info("Task completed or cancelled. Closing monitor.")
+        task_status = data.get("status")
+        if task_status in ("completed", "cancelled", "failed"):
+            logger.info(f"Task in status {task_status}, Closing monitor.")
             break
 
 async def listen_task_status(task_id: str) -> None:
@@ -91,7 +93,7 @@ async def listen_task_status(task_id: str) -> None:
             logger.info(f"Connected to WebSocket: {ws_url}")
             await receive_ws_messages(ws)
     except Exception as e:
-        logger.exception(f"Failed to connect WebSocket for task {task_id}: {e}")
+        logger.error(f"Failed to connect WebSocket for {task_id}: {e}")
 
 
 def parse_arguments():
@@ -104,7 +106,7 @@ def parse_arguments():
     )
 
     # Start command
-    start = subparsers.add_parser(Command.START, help='Start a new task')
+    start = subparsers.add_parser(Command.START, help='Start a new task')  # noqa: F841
 
     # Stop command
     stop = subparsers.add_parser(Command.STOP, help='Stop a running task')
@@ -121,44 +123,39 @@ def parse_arguments():
 
     return args
 
+async def handle_start(session : aiohttp.ClientSession) -> None:
+    id_response: Dict[str, Any] | None = await unified_request_handler(
+        session, Request_Type.GET, f"{BASE_URL}:{PORT}/tasks/getid"
+        )
+    task_id: str = extract_task_id(id_response)
+    if not task_id:
+        return
+    await start_task(session, task_id)
+
+
 # --- Main ---
 async def main() -> None:
     args = parse_arguments()
+    command = args.command
     async with aiohttp.ClientSession() as session:
-        task_id = None
-        match args.command:
+        match command:
             case Command.START:
-                id_response: Dict[str, Any] | None = await unified_request_handler(session, Request_Type.GET, f"{BASE_URL}:{PORT}/tasks/getid")
-                task_id: str | None = extract_task_id(id_response)
-                if not task_id:
-                    logger.error("Failed to get task ID")
-                    return
-
-                await start_task(session, task_id)
-                logger.info(f"Task {task_id} started. Use 'status {task_id}' to monitor.")
+                await handle_start(session=session)
                 
-            
             case Command.STOP:
-                task_id = args.task_id
-                if not task_id:
-                    logger.error("Missing task_id for stop command")
-                    return
-                await stop_task(session, task_id)
-            
-            
+                await stop_task(session, args.task_id)
+
             case Command.LIST:
-                result: Dict[str, Any] | None = await list_tasks(session)
-                if result:
-                    pretty_print(result)
+                await list_tasks(session)
 
             case Command.STATUS:
-                task_id = args.task_id
-                logger.info(f"Monitoring task: {task_id}")
-                await listen_task_status(task_id)
+                logger.info(f"Monitoring task: {args.task_id}")
+                await listen_task_status(args.task_id)
                 
             case _:
-                logger.error(f"unknown command {args.command}")
+                logger.error(f"unknown command {command}")
                 return 
+        
 
 
 
