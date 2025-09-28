@@ -5,7 +5,7 @@ import websockets
 import argparse
 from typing import Dict, Optional, Any
 
-from const import BASE_URL, PORT, WS_URL
+from configs import BASE_URL, PORT, WS_URL
 from helper_class import Command, Request_Type, TaskStatus
 from utils import timeit
 from configs import setup_logging

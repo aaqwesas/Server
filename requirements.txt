@@ -1,5 +1,5 @@
 aiohttp==3.12.12
-fastapi==0.116.2
+fastapi==0.117.1
 psutil==7.1.0
-uvicorn==0.35.0
+uvicorn==0.37.0
 websockets==15.0.1
