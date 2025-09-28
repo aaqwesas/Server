@@ -71,9 +71,10 @@ async def stop_task(session: aiohttp.ClientSession, task_id: str) -> Dict[str,An
 async def list_tasks(session: aiohttp.ClientSession) -> Dict[str,Any] | None:
     url: str = f"{BASE_URL}:{PORT}/tasks/list"
     result: Dict[str, Any] | None = await unified_request_handler(session, Request_Type.GET, url)
-    if result is not None:
-        logger.info(f"Found {len(result)} tasks")
-        pretty_print(result)
+    if result is None:
+        return
+    logger.info(f"Found {len(result)} tasks")
+    pretty_print(result)
         
 @timeit(logger=logger) 
 async def handle_start(session : aiohttp.ClientSession) -> None:
@@ -166,7 +167,6 @@ async def main() -> None:
                 
             case Command.HEALTH:
                 await handle_health_check(session=session)
-                
                 
             case _:
                 logger.error(f"unknown command {command}")

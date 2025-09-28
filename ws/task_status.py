@@ -30,10 +30,6 @@ async def managed_websocket(websocket: WebSocket) -> AsyncGenerator[WebSocket, N
     finally:
         if getattr(websocket, "client_state", None) == "connected":
             await websocket.close(code=status.WS_1011_INTERNAL_ERROR, reason="Server Cleanup")
-            
-from fastapi import WebSocket, status
-from contextlib import asynccontextmanager
-import asyncio
 
 @ws_router.websocket("/{task_id}")
 async def task_status_ws(websocket: WebSocket, task_id: str) -> None:
