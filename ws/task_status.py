@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 import logging
 
-from fastapi import APIRouter, Request, WebSocket
+from fastapi import APIRouter, WebSocket
 from fastapi import status
 from websockets import ConnectionClosedError, ConnectionClosedOK
 
