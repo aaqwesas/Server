@@ -1,6 +1,4 @@
 from enum import StrEnum
-from abc import ABCMeta
-from typing import Any
 
 
 class UpperStrEnum(StrEnum):

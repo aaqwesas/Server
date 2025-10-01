@@ -6,7 +6,7 @@ import argparse
 from typing import Dict, Optional, Any
 
 from configs import BASE_URL, PORT, WS_URL
-from helper_class import Command, Request_Type, TaskStatus
+from helper_class import Command, RequestType, TaskStatus
 from utils import timeit
 from configs import setup_logging
 
@@ -56,21 +56,21 @@ async def unified_request_handler(
 @timeit(logger=logger)
 async def start_task(session: aiohttp.ClientSession, task_id: str) -> None:
     url: str = f"{BASE_URL}:{PORT}/tasks/start/{task_id}"
-    result: Dict[str, Any] | None = await unified_request_handler(session, Request_Type.POST, url, json={})
+    result: Dict[str, Any] | None = await unified_request_handler(session, RequestType.POST, url, json={})
     if result.get("task_id"):
         logger.info(f"Task started: {task_id}")
 
 @timeit(logger=logger)
 async def stop_task(session: aiohttp.ClientSession, task_id: str) -> Dict[str,Any] | None:
     url: str = f"{BASE_URL}:{PORT}/tasks/stop/{task_id}"
-    result: Dict[str, Any] | None = await unified_request_handler(session, Request_Type.POST, url)
+    result: Dict[str, Any] | None = await unified_request_handler(session, RequestType.POST, url)
     if result:
         logger.info(f"Task stopped: {task_id}")
 
 @timeit(logger=logger)
 async def list_tasks(session: aiohttp.ClientSession) -> Dict[str,Any] | None:
     url: str = f"{BASE_URL}:{PORT}/tasks/list"
-    result: Dict[str, Any] | None = await unified_request_handler(session, Request_Type.GET, url)
+    result: Dict[str, Any] | None = await unified_request_handler(session, RequestType.GET, url)
     if result is None:
         return
     logger.info(f"Found {len(result)} tasks")
@@ -80,7 +80,7 @@ async def list_tasks(session: aiohttp.ClientSession) -> Dict[str,Any] | None:
 async def handle_start(session : aiohttp.ClientSession) -> None:
     url: str = f"{BASE_URL}:{PORT}/tasks/getid"
     id_response: Dict[str, Any] | None = await unified_request_handler(
-        session, Request_Type.GET, url
+        session, RequestType.GET, url
         )
     task_id: str = extract_task_id(id_response)
     if not task_id:
@@ -90,7 +90,7 @@ async def handle_start(session : aiohttp.ClientSession) -> None:
 async def handle_health_check(session: aiohttp.ClientSession) -> None:
     url = f"{BASE_URL}:{PORT}/tasks/health"
     result  = await unified_request_handler(
-        session, Request_Type.GET, url
+        session, RequestType.GET, url
     )
     if result:
         pretty_print(result)

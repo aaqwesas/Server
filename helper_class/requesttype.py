@@ -4,7 +4,7 @@ from helper_class.upperStrEnum import UpperStrEnum
 
 
 
-class Request_Type(UpperStrEnum):
+class RequestType(UpperStrEnum):
     POST = auto()
     GET = auto()
     PUT = auto()
