@@ -9,6 +9,6 @@ logger = logging.getLogger("server")
 
 @timeit(logger=logger)
 def complicated_task(task_id: str, shared_tasks: dict) -> None:
-    time.sleep(15)
+    time.sleep(5)
     if task_id in shared_tasks:
         shared_tasks[task_id] = Task(status=TaskStatus.COMPLETED)
