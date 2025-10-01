@@ -171,9 +171,6 @@ async def main() -> None:
             case _:
                 logger.error(f"unknown command {command}")
                 return 
-        
-
-
-
+    
 if __name__ == "__main__":
     asyncio.run(main())

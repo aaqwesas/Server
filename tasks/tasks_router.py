@@ -16,7 +16,7 @@ tasks_router = APIRouter(
 )
 
 @tasks_router.get("/getid")
-async def get_task_id[T]() -> Dict[str, T]:
+def get_task_id[T]() -> Dict[str, T]:
     task_id: str = datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")
     return {"task_id": task_id}
 
@@ -29,7 +29,7 @@ async def start_task(request: Request,task_id: str) -> Dict[str,str]:
 
 
 @tasks_router.post("/stop/{task_id}")
-async def stop_task(request: Request,task_id: str ) -> Dict[str, str]:
+def stop_task(request: Request,task_id: str ) -> Dict[str, str]:
     success = request.app.state.task_manager.update_task(task_id, TaskStatus.CANCELLED)
     
     if not success:
