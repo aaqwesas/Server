@@ -162,7 +162,6 @@ async def main() -> None:
                 await list_tasks(session=session)
 
             case Command.STATUS:
-                logger.info(f"Monitoring task: {args.task_id}")
                 await listen_task_status(args.task_id)
                 
             case Command.HEALTH:

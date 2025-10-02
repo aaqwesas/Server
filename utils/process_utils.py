@@ -19,7 +19,7 @@ def get_subprocess_count() -> int:
 
 
 async def cleanup_processes(app: FastAPI) -> None:
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     processes_to_clean: List[Tuple[str,Process]] = list(app.state.processes.items())
     for task_id, proc in processes_to_clean:
         task = app.state.task_manager.get_task(task_id)
@@ -39,7 +39,6 @@ async def cleanup_processes(app: FastAPI) -> None:
                 proc.kill()
                 await loop.run_in_executor(None, proc.join)
 
-            # Now clean up state
             app.state.task_manager.remove_task(task_id)
             app.state.processes.pop(task_id, None)
             logger.info(f"Cleaned up resources for task {task_id}")

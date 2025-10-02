@@ -1,5 +1,3 @@
-from multiprocessing import Process
-import time
 import unittest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
