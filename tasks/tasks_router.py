@@ -35,7 +35,7 @@ def stop_task(request: Request,task_id: str ) -> Dict[str, str]:
     if not success:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    logger.info(f"Task {task_id} stopped.")
+    logger.info("Task %s stopped.",task_id)
     
     return {"task_id": task_id, "status": TaskStatus.CANCELLED}
 

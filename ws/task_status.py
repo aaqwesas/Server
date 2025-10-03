@@ -26,7 +26,7 @@ async def managed_websocket(websocket: WebSocket) -> AsyncGenerator[WebSocket, N
     except (ConnectionClosedOK, ConnectionClosedError):
         return
     except Exception as e:
-        logger.warning(f"WebSocket error: {e}")
+        logger.warning("WebSocket error: %s", e)
     finally:
         if getattr(websocket, "client_state", None) == "connected":
             await websocket.close(code=status.WS_1011_INTERNAL_ERROR, reason="Server Cleanup")

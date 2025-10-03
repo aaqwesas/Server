@@ -24,7 +24,7 @@ def timeit(logger: Optional[logging.Logger] = None):
                 start_time = time.perf_counter()
                 result = await func(*args, **kwargs)
                 end_time = time.perf_counter()
-                log.info(f"Function {func.__name__} took {end_time - start_time:.2f}s")
+                log.info("Function %s took %ss", func.__name__, end_time - start_time )
                 return result
         else:
             @wraps(func)
@@ -32,8 +32,7 @@ def timeit(logger: Optional[logging.Logger] = None):
                 start_time = time.perf_counter()
                 result = func(*args, **kwargs)
                 end_time = time.perf_counter()
-                log.info(f"Function {func.__name__} took {end_time - start_time:.2f}s")
+                log.info("Function %s took %ss", func.__name__, end_time - start_time )
                 return result
-    
         return wrapper
     return decorator

@@ -27,21 +27,21 @@ async def cleanup_processes(app: FastAPI) -> None:
 
             if proc.exitcode is None:
                 proc.terminate()
-                logger.debug(f"Terminated process {task_id}")
+                logger.debug("Terminated process %s", task_id)
 
             try:
                 await loop.run_in_executor(None, proc.join, 3)
             except Exception as e:
-                logger.warning(f"Join failed for {task_id}: {e}")
+                logger.warning("Join failed for %s: %s", task_id, e)
 
             if proc.is_alive():
-                logger.warning(f"Process {task_id} did not terminate, forcing kill")
+                logger.warning("Process %s did not terminate, forcing kill", task_id)
                 proc.kill()
                 await loop.run_in_executor(None, proc.join)
 
             app.state.task_manager.remove_task(task_id)
             app.state.processes.pop(task_id, None)
-            logger.info(f"Cleaned up resources for task {task_id}")
+            logger.info("Cleaned up resources for task %s", task_id)
 
 
 

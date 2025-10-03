@@ -21,14 +21,13 @@ async def start_new_task(app: FastAPI) -> bool:
     p = Process(target=complicated_task, args=(task_id, app.state.shared_tasks))
     p.start()
     app.state.processes[task_id] = p
-    logger.info(f"Process started with pid: {p.pid}")
+    logger.info("Process started with pid: %s",p.pid)
+    app.state.queue.task_done()
     return True
  
 
 async def task_scheduler(app: Any) -> None:
     max_process = app.state.max_process
-    task_queue = app.state.queue
-    scheduler_event = app.state.scheduler_event
     print(f"{max_process = }")
     
     while True:
@@ -42,14 +41,10 @@ async def task_scheduler(app: Any) -> None:
         
         if current_processes >= max_process:
             logger.debug("Max processes reached. Waiting for free slot...")
-            await scheduler_event.wait()
-            scheduler_event.clear()
-        
-        try:
-            await asyncio.wait_for(task_queue.get(), timeout=QUEUE_CHECK)
-            task_queue.task_done()
-        except asyncio.TimeoutError:
-            pass
+            await app.state.scheduler_event.wait()
+            app.state.scheduler_event.clear()
+        else:
+            await asyncio.sleep(QUEUE_CHECK)
         
 def start_task_scheduler(app: Any) -> asyncio.Task:
     return asyncio.create_task(task_scheduler(app))
