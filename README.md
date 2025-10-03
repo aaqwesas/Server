@@ -28,8 +28,7 @@ A robust, production-ready server application built with Python. Designed for sc
 | Logging | `python-logging` with JSON formatter |
 | Processes | `multiprocessing` or `asyncio.subprocess` |
 | Packaging | `pyproject.toml` |
-| Containerization | Docker (optional) |
-| Testing | `pytest`, `httpx` |
+| Testing | `unittest`, |
 
 ---
 
@@ -66,7 +65,7 @@ or
 python server.py
 ```
 ```bash
-fastapi run server.py
+python -m fastapi dev server.py
 ```
 
 ---
@@ -91,12 +90,12 @@ fastapi run server.py
 
 Logs are written to:
 - Console (stdout)
-- File: `logs/server.log` (rotated daily)
-- File: `logs/client.log` 
+- File: `logs/server.log` (rotated)
+- File: `logs/client.log`  (rotated)
 
 Format:
 ```json
-{"time": "2025-01-01 11:11:11", "level": "INFO", "logger": "client", "message": 12345}
+{"time": "2025-01-01 11:11:11", "level": "INFO", "logger": "client", "message": "your_message"}
 ```
 ---
 
@@ -145,14 +144,13 @@ See `server.py`.
 - JWT authentication
 - Rate limiting
 - Email alerts
-- CI/CD pipeline
 
 
 ---
 
 ## Acknowledgments
 
-Built with ❤️ using:
+Built using:
 - [FastAPI](https://fastapi.tiangolo.com/)
 - [Uvicorn](https://www.uvicorn.org/)
 - [Python Logging](https://docs.python.org/3/library/logging.html)
