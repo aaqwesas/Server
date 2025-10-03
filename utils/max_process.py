@@ -1,7 +1,7 @@
 import psutil
 
 def get_optimal_process_count(workload_type='cpu'):
-    cpu_count= len(psutil.Process().cpu_affinity())  
+    cpu_count= len(psutil.Process().cpu_affinity())
 
     if workload_type == 'cpu':
         return cpu_count
