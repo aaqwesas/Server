@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 
 from core.lifespan import lifespan
+from core.middleware import rate_limit_middleware
 from tasks import tasks_router
 from ws import ws_router
 
@@ -19,5 +20,9 @@ def create_app() -> FastAPI:
 
     app.include_router(tasks_router)
     app.include_router(ws_router)
+    app.middleware("http")(rate_limit_middleware)
 
+    
     return app
+
+

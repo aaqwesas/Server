@@ -46,8 +46,7 @@ async def task_scheduler(app: Any) -> None:
         else:
             await asyncio.sleep(QUEUE_CHECK)
         
-def start_task_scheduler(app: Any) -> asyncio.Task:
-    return asyncio.create_task(task_scheduler(app))
+
 
 async def stop_scheduler(app: Any) -> None:
     if not hasattr(app.state, "scheduler_task"):
@@ -57,3 +56,7 @@ async def stop_scheduler(app: Any) -> None:
         await app.state.scheduler_task
     except asyncio.CancelledError:
         logger.info("Scheduler task cancelled.")
+        
+        
+def start_task_scheduler(app: Any) -> asyncio.Task:
+    return asyncio.create_task(task_scheduler(app))
